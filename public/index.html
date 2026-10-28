@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parcel Inspector Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">AI</span>
+      <div>
+        <div class="brand-title">AI Parcel Damage Inspector</div>
+        <div class="brand-sub">ระบบประเมินและคัดแยกพัสดุชำรุด · Edge AI + IoT</div>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="overview" class="active">ภาพรวม</button>
+      <button data-tab="live">Live Monitoring</button>
+      <button data-tab="evidence">หลักฐาน (Tracking)</button>
+      <button data-tab="alerts">แจ้งเตือน <span id="alertBadge" class="badge hidden">0</span></button>
+      <button data-tab="analytics">Analytics</button>
+      <button data-tab="settings">ตั้งค่า</button>
+    </nav>
+    <div class="top-right">
+      <select id="range" aria-label="ช่วงเวลา">
+        <option value="3600000">1 ชม.</option>
+        <option value="86400000" selected>24 ชม.</option>
+        <option value="604800000">7 วัน</option>
+        <option value="2592000000">30 วัน</option>
+      </select>
+      <span id="conn" class="conn" title="การเชื่อมต่อกับเซิร์ฟเวอร์">● LIVE</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================= OVERVIEW ================= -->
+    <section id="tab-overview" class="tab active">
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-label">ตรวจทั้งหมด</div><div class="kpi-val" id="k-total">–</div><div class="kpi-sub" id="k-latency">–</div></div>
+        <div class="kpi good"><div class="kpi-label">✓ ผ่าน (PASS)</div><div class="kpi-val" id="k-pass">–</div><div class="kpi-sub" id="k-passrate">–</div></div>
+        <div class="kpi bad"><div class="kpi-label">✕ ชำรุด (REJECT)</div><div class="kpi-val" id="k-reject">–</div><div class="kpi-sub" id="k-rate">–</div></div>
+        <div class="kpi warn"><div class="kpi-label">⚠ แจ้งเตือนค้าง</div><div class="kpi-val" id="k-alerts">–</div><div class="kpi-sub" id="k-failsafe">–</div></div>
+      </div>
+      <div class="grid-2-1">
+        <div class="card">
+          <div class="card-h"><h3>ปริมาณพัสดุตามเวลา</h3><span class="muted" id="bucketLabel"></span></div>
+          <div class="chart-box"><canvas id="chVolume"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>สถานะระบบ</h3><span class="muted small" id="sysNote"></span></div>
+          <div id="edgeList" class="edge-list"><div class="empty">ยังไม่มีสถานีเชื่อมต่อ</div></div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-h"><h3>อัตราของเสีย (%)</h3></div>
+          <div class="chart-box sm"><canvas id="chRate"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>ชำรุดล่าสุด</h3><button class="link" data-goto="evidence" data-filter="REJECT">ดูทั้งหมด →</button></div>
+          <div id="recentRejects" class="thumbs"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= LIVE ================= -->
+    <section id="tab-live" class="tab">
+      <div class="grid-2-1">
+        <div class="card">
+          <div class="card-h"><h3>พัสดุล่าสุดที่จุดตรวจ</h3><span class="muted" id="liveTime"></span></div>
+          <div id="liveCard" class="live-card"><div class="empty">รอพัสดุผ่านจุดตรวจ…</div></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Tower Light</h3></div>
+          <div class="tower" id="tower">
+            <div class="lamp red" id="lampRed"></div>
+            <div class="lamp yellow" id="lampYellow"></div>
+            <div class="lamp green" id="lampGreen"></div>
+          </div>
+          <div id="towerText" class="tower-text muted">–</div>
+          <h3 class="small muted" style="margin:6px 0 0">แผงคัดแยก (วันนี้)</h3>
+          <div class="gate"><div>✓ ไปต่อ<b id="gatePass">–</b></div><div>✕ ถังคัดออก<b id="gateReject">–</b></div></div>
+          <div id="liveEdge" class="live-edge"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Feed แบบเรียลไทม์</h3><span class="muted">อัปเดตทันทีเมื่อมีกล่องผ่าน</span></div>
+        <div class="table-wrap">
+          <table class="tbl"><thead><tr><th>เวลา</th><th>Tracking</th><th>ผล</th><th>เหตุผล</th><th>ความมั่นใจ</th><th>น้ำหนัก</th><th>สถานี</th><th>Sync</th></tr></thead>
+            <tbody id="feed"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= EVIDENCE ================= -->
+    <section id="tab-evidence" class="tab">
+      <div class="card">
+        <div class="filters">
+          <input id="q" type="search" placeholder="ค้นหาด้วย Tracking Number…" autocomplete="off">
+          <select id="fResult"><option value="">ทุกผล</option><option value="REJECT">✕ REJECT</option><option value="PASS">✓ PASS</option></select>
+          <select id="fReason"><option value="">ทุกเหตุผล</option><option value="DENT">DENT</option><option value="TEAR">TEAR</option><option value="DEFORM">DEFORM</option><option value="WET">WET</option><option value="AI_TIMEOUT">AI_TIMEOUT</option><option value="VISION_FAULT">VISION_FAULT</option></select>
+          <button id="btnSearch" class="btn">ค้นหา</button>
+          <a id="btnCsv" class="btn ghost" href="/api/export.csv">⭳ Export CSV</a>
+        </div>
+        <div class="muted small" id="evCount"></div>
+        <div class="table-wrap">
+          <table class="tbl click"><thead><tr><th>เวลา</th><th>Tracking</th><th>ผล</th><th>เหตุผล</th><th>ตัดสินโดย</th><th>ความมั่นใจ</th><th>น้ำหนัก</th><th>สถานี</th></tr></thead>
+            <tbody id="evRows"></tbody></table>
+        </div>
+        <div class="pager"><button id="prev" class="btn ghost">‹ ก่อนหน้า</button><span id="pageInfo" class="muted"></span><button id="next" class="btn ghost">ถัดไป ›</button></div>
+      </div>
+    </section>
+
+    <!-- ================= ALERTS ================= -->
+    <section id="tab-alerts" class="tab">
+      <div class="card">
+        <div class="card-h"><h3>แจ้งเตือนความผิดปกติของระบบ</h3>
+          <div><label class="chk"><input type="checkbox" id="openOnly"> เฉพาะที่ยังไม่รับทราบ</label>
+          <button id="ackAll" class="btn ghost">รับทราบทั้งหมด</button></div></div>
+        <div id="alertList" class="alert-list"></div>
+      </div>
+    </section>
+
+    <!-- ================= ANALYTICS ================= -->
+    <section id="tab-analytics" class="tab">
+      <div class="kpis">
+        <div class="kpi c-dent"><div class="kpi-label">รอยบุบ (Dent)</div><div class="kpi-val" id="a-dent">–</div></div>
+        <div class="kpi c-tear"><div class="kpi-label">ฉีกขาด (Tear)</div><div class="kpi-val" id="a-tear">–</div></div>
+        <div class="kpi c-deform"><div class="kpi-label">ผิดรูป / ยับเยิน (Deform)</div><div class="kpi-val" id="a-deform">–</div></div>
+        <div class="kpi c-wet"><div class="kpi-label">เปียกน้ำ (Wet)</div><div class="kpi-val" id="a-wet">–</div></div>
+      </div>
+      <div class="grid-2">
+        <div class="card"><div class="card-h"><h3>ประเภทความเสียหายตามเวลา</h3></div><div class="chart-box"><canvas id="chDefects"></canvas></div></div>
+        <div class="card"><div class="card-h"><h3>สาเหตุการคัดออก</h3></div><div class="chart-box"><canvas id="chReasons"></canvas></div></div>
+      </div>
+      <div class="grid-2">
+        <div class="card"><div class="card-h"><h3>อัตราของเสียตามชั่วโมงของวัน (%)</h3></div><div class="chart-box"><canvas id="chHour"></canvas></div></div>
+        <div class="card"><div class="card-h"><h3>การกระจายค่าความมั่นใจของ AI</h3><span class="muted small">ช่วยจูน Threshold</span></div><div class="chart-box"><canvas id="chConf"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>เปรียบเทียบสถานี</h3></div>
+        <table class="tbl"><thead><tr><th>สถานี</th><th>ตรวจ</th><th>ชำรุด</th><th>อัตรา</th><th>Latency เฉลี่ย</th></tr></thead><tbody id="edgeTable"></tbody></table>
+      </div>
+    </section>
+
+    <!-- ================= SETTINGS ================= -->
+    <section id="tab-settings" class="tab">
+      <div class="card narrow">
+        <div class="card-h"><h3>ปรับพารามิเตอร์สถานี (ไม่ต้องแก้โค้ด)</h3>
+          <select id="cfgEdge"></select></div>
+        <p class="muted small">สถานีจะดึงค่าใหม่ใน heartbeat ถัดไป (ภายใน ~5 วินาที) — ถ้าออฟไลน์อยู่ จะได้รับทันทีที่เชื่อมต่อกลับ</p>
+        <form id="cfgForm" class="cfg"></form>
+        <div class="cfg-actions"><button id="cfgSave" class="btn">บันทึก & ส่งไปสถานี</button><button id="cfgReset" class="btn ghost" type="button">คืนค่าเริ่มต้น</button><span id="cfgMsg" class="muted"></span></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- detail modal -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <button class="modal-x" id="modalClose" aria-label="ปิด">✕</button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+  <div id="toasts" class="toasts"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

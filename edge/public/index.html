@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station Console</title>
+<style>
+  :root { color-scheme: dark; --bg:#070d18; --s1:#101c2e; --line:#22344f; --t:#e8eef7; --m:#7487a1; --good:#199e70; --bad:#e66767; --warn:#c98500; --acc:#22c3ee; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--t); font:15px/1.5 'Segoe UI',Tahoma,sans-serif; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:10px; }
+  h1 { font-size:18px; margin:0; } h1 span { color:var(--acc); }
+  main { display:grid; grid-template-columns: 1.3fr 1fr; gap:16px; padding:16px 20px; }
+  @media (max-width:900px){ main { grid-template-columns:1fr; } }
+  .card { background:var(--s1); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card h2 { font-size:14px; margin:0 0 10px; color:var(--m); font-weight:600; }
+  .scan { width:100%; font-size:22px; padding:12px; border-radius:10px; border:2px solid var(--acc); background:#0a1424; color:var(--t); font-family:Consolas,monospace; }
+  .result { font-size:56px; font-weight:800; text-align:center; padding:20px; border-radius:12px; margin-bottom:12px; background:#0a1424; }
+  .result.PASS { color:#7fe0b8; border:2px solid var(--good); } .result.REJECT { color:#ffb0b0; border:2px solid var(--bad); }
+  .meta { text-align:center; color:var(--m); font-family:Consolas,monospace; }
+  .status { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .st { padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-size:13px; }
+  .st.ok { border-color:var(--good); } .st.bad { border-color:var(--bad); color:#ffb0b0; } .st.warn { border-color:var(--warn); color:#f3c766; }
+  table { width:100%; border-collapse:collapse; font-size:13px; } td,th { padding:5px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  .P { color:#7fe0b8; } .R { color:#ffb0b0; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  button { background:var(--s1); color:var(--t); border:1px solid var(--line); padding:7px 12px; border-radius:8px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--acc); }
+  .cfg { display:grid; grid-template-columns:1fr 110px; gap:6px 10px; font-size:13px; align-items:center; }
+  .cfg input, .cfg select { background:#0a1424; color:var(--t); border:1px solid var(--line); border-radius:6px; padding:4px 6px; width:100%; }
+  .muted { color:var(--m); font-size:12px; }
+  .alerts div { font-size:13px; padding:4px 0; border-bottom:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Station Console · <span id="edgeId">–</span></h1>
+  <div class="muted">หน้านี้ทำงานได้แม้ Internet ล่ม (รันบนเครื่องหน้างาน)</div>
+</header>
+<main>
+  <div>
+    <div class="card">
+      <h2>สแกนบาร์โค้ด (USB Scanner) — คลิกช่องนี้ค้างไว้</h2>
+      <input id="scan" class="scan" placeholder="รอสแกน Tracking Number…" autocomplete="off" autofocus>
+      <div class="muted" id="scanMsg">สแกนเนอร์ USB ทำงานเหมือนคีย์บอร์ด: พิมพ์รหัส + Enter</div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div id="result" class="result">—</div>
+      <div id="meta" class="meta">รอพัสดุ…</div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>ล่าสุด</h2>
+      <table><thead><tr><th>เวลา</th><th>Tracking</th><th>ผล</th><th>เหตุผล</th><th>Sync</th></tr></thead><tbody id="recent"></tbody></table>
+    </div>
+  </div>
+  <div>
+    <div class="card">
+      <h2>สถานะระบบ</h2>
+      <div class="status" id="status"></div>
+      <div class="row">
+        <button data-act="reject">ทดสอบแขนปัด</button>
+        <button data-act="pass">ทดสอบไฟเขียว</button>
+        <button data-act="belt-stop">หยุดสายพาน</button>
+        <button data-act="belt-start">เดินสายพาน</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>พารามิเตอร์ (แก้ได้แม้ออฟไลน์)</h2>
+      <form id="cfg" class="cfg"></form>
+      <div class="row"><button id="save">บันทึก</button><span class="muted" id="cfgMsg"></span></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>แจ้งเตือน</h2>
+      <div class="alerts" id="alerts"><div class="muted">–</div></div>
+    </div>
+  </div>
+</main>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const t = (ts) => new Date(ts).toLocaleTimeString('th-TH', { hour12: false });
+  const post = (u, b, m = 'POST') => fetch(u, { method: m, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
+
+  // keep scanner input focused so the USB scanner always types into it
+  setInterval(() => { if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') $('#scan').focus(); }, 1500);
+  $('#scan').addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const code = e.target.value.trim(); e.target.value = '';
+    if (!code) return;
+    const r = await post('/api/scan', { code });
+    $('#scanMsg').textContent = `✓ ${code} — รอกล่องถึงจุดตรวจ (คิว ${r.queued})`;
+  });
+  document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => post('/api/test/' + b.dataset.act)));
+
+  function renderStatus(s) {
+    $('#edgeId').textContent = s.edge_id;
+    const cira = s.cira_last_seen && Date.now() - s.cira_last_seen < 60000;
+    const items = [
+      ['Cloud', s.cloud ? 'ok' : 'warn', s.cloud ? 'ออนไลน์' : 'ออฟไลน์ (เก็บในเครื่อง)'],
+      ['ESP32/PLC', s.esp32 ? 'ok' : 'bad', s.esp32 ? 'เชื่อมต่อ' : 'ขาดการเชื่อมต่อ'],
+      ['CiRA CORE', cira ? 'ok' : 'warn', cira ? 'ส่งผลล่าสุด ' + t(s.cira_last_seen) : 'ยังไม่มีผลใน 60 วิ'],
+      ['รอ Sync', s.pending_sync ? 'warn' : 'ok', s.pending_sync + ' รายการ'],
+      ['Tower light', s.light === 'yellow' ? 'warn' : 'ok', s.light === 'yellow' ? 'เหลือง' : 'ปกติ'],
+      ['Faults', s.faults.length ? 'bad' : 'ok', s.faults.join(', ') || 'ไม่มี'],
+    ];
+    $('#status').innerHTML = items.map(([k, c, v]) => `<div class="st ${c}"><b>${k}</b><br>${esc(v)}</div>`).join('');
+  }
+  const FIELDS = ['reject_delay_ms', 'servo_hold_ms', 'conf_dent', 'conf_tear', 'conf_deform', 'conf_wet', 'cv_check', 'min_box_area', 'brightness_min', 'jam_timeout_ms', 'ai_timeout_ms', 'scan_window_ms'];
+  async function loadCfg() {
+    const { config } = await fetch('/api/config').then((r) => r.json());
+    $('#cfg').innerHTML = FIELDS.map((k) => `<label>${k}</label><input name="${k}" type="number" step="any" value="${config[k]}">`).join('')
+      + `<label>failsafe_action</label><select name="failsafe_action"><option ${config.failsafe_action === 'REJECT' ? 'selected' : ''}>REJECT</option><option ${config.failsafe_action === 'PASS' ? 'selected' : ''}>PASS</option></select>`;
+  }
+  $('#save').addEventListener('click', async () => {
+    const body = {};
+    document.querySelectorAll('#cfg [name]').forEach((i) => { body[i.name] = i.type === 'number' ? Number(i.value) : i.value; });
+    await post('/api/config', body, 'PUT');
+    $('#cfgMsg').textContent = '✓ บันทึกแล้ว ' + t(Date.now());
+  });
+  async function loadRecent() {
+    const rows = await fetch('/api/recent').then((r) => r.json());
+    $('#recent').innerHTML = rows.map((r) => `<tr><td>${t(r.ts)}</td><td>${esc(r.tracking || '—')}</td><td class="${r.result === 'PASS' ? 'P' : 'R'}">${r.result === 'PASS' ? '✓ PASS' : '✕ REJECT'}</td><td>${esc(r.reason)}</td><td>${r.synced ? '☁' : '⏳'}</td></tr>`).join('');
+  }
+  const es = new EventSource('/api/stream');
+  es.addEventListener('status', (e) => renderStatus(JSON.parse(e.data)));
+  es.addEventListener('inspection', (e) => {
+    const r = JSON.parse(e.data);
+    $('#result').className = 'result ' + r.result;
+    $('#result').textContent = r.result === 'PASS' ? '✓ PASS' : '✕ REJECT';
+    $('#meta').textContent = `${r.tracking || 'ไม่มีบาร์โค้ด'} · ${r.reason} · ${r.latency_ms} ms`;
+    loadRecent();
+  });
+  es.addEventListener('alert', (e) => {
+    const a = JSON.parse(e.data);
+    const el = $('#alerts');
+    if (el.firstElementChild?.classList.contains('muted')) el.innerHTML = '';
+    el.insertAdjacentHTML('afterbegin', `<div><b>${esc(a.type)}</b> ${t(a.ts)}<br><span class="muted">${esc(a.message)}</span></div>`);
+  });
+  loadCfg(); loadRecent();
+  setInterval(loadRecent, 5000);
+</script>
+</body>
+</html>
