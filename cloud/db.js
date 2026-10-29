@@ -53,7 +53,9 @@ function createDb() {
   }
 
   const { DatabaseSync } = require('node:sqlite');
-  const dir = path.resolve(process.env.CLOUD_DATA_DIR || path.join(__dirname, '..', 'data', 'cloud'));
+  // On Vercel without DATABASE_URL only /tmp is writable: works for a quick look, but data is lost on cold starts.
+  const fallback = process.env.VERCEL ? '/tmp/parcel-cloud' : path.join(__dirname, '..', 'data', 'cloud');
+  const dir = path.resolve(process.env.CLOUD_DATA_DIR || fallback);
   fs.mkdirSync(dir, { recursive: true });
   const db = new DatabaseSync(path.join(dir, 'cloud.db'));
   db.exec('PRAGMA journal_mode = WAL;');
@@ -61,7 +63,7 @@ function createDb() {
   // $1 -> ?1 (SQLite numbered parameters)
   const prep = (q) => db.prepare(q.replace(/\$(\d+)/g, '?$1'));
   return {
-    kind: 'sqlite',
+    kind: process.env.VERCEL ? 'sqlite-temporary (connect Neon Postgres!)' : 'sqlite',
     async all(q, p = []) { return fix(prep(q).all(...p)); },
     async get(q, p = []) { return (await this.all(q, p))[0]; },
     async run(q, p = []) { return { changes: Number(prep(q).run(...p).changes) }; },
