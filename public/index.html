@@ -32,10 +32,12 @@
         <option value="604800000">7 วัน</option>
         <option value="2592000000">30 วัน</option>
       </select>
+      <button id="demoBtn" class="btn ghost" title="สร้างกล่องจำลองบนเซิร์ฟเวอร์ทุก ~3 วินาที">▶ Demo</button>
       <span id="conn" class="conn" title="การเชื่อมต่อกับเซิร์ฟเวอร์">● LIVE</span>
     </div>
   </header>
 
+  <div id="demoBanner" class="demo-banner hidden">DEMO MODE — กล่องที่สถานี <b>demo-hub</b> เป็นข้อมูลจำลองที่เซิร์ฟเวอร์สร้างขึ้น ไม่ใช่จากหน้างานจริง</div>
   <main>
     <!-- ================= OVERVIEW ================= -->
     <section id="tab-overview" class="tab active">
@@ -155,6 +157,11 @@
         <p class="muted small">สถานีจะดึงค่าใหม่ใน heartbeat ถัดไป (ภายใน ~5 วินาที) — ถ้าออฟไลน์อยู่ จะได้รับทันทีที่เชื่อมต่อกลับ</p>
         <form id="cfgForm" class="cfg"></form>
         <div class="cfg-actions"><button id="cfgSave" class="btn">บันทึก & ส่งไปสถานี</button><button id="cfgReset" class="btn ghost" type="button">คืนค่าเริ่มต้น</button><span id="cfgMsg" class="muted"></span></div>
+      </div>
+      <div class="card narrow">
+        <div class="card-h"><h3>Demo mode</h3></div>
+        <p class="muted small">เปิดแล้วเซิร์ฟเวอร์จะสร้างกล่องจำลอง (ปกติ / บุบ / ฉีก / ผิดรูป / เปียก) ทุก ~3 วินาที ขณะที่มีคนเปิดหน้าเว็บนี้อยู่ ข้อมูลจำลองติดป้าย DEMO และเก็บไว้แค่ 300 กล่องล่าสุด</p>
+        <div class="cfg-actions"><button id="demoClear" class="btn ghost" type="button">ลบข้อมูลจำลองทั้งหมด</button><span id="demoMsg" class="muted"></span></div>
       </div>
     </section>
   </main>

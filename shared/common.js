@@ -58,6 +58,14 @@ async function startBroker(port, name) {
 
 const uid = () => crypto.randomUUID();
 
+// Reads secrets (DATABASE_URL, INGEST_API_KEY, ADMIN_KEY, CLOUD_URL…) from .env.local in the project root.
+// Variables already set in the shell win. Tests set PARCEL_NO_ENV_FILE=1 so they never touch the real database.
+function loadLocalEnv() {
+  if (process.env.PARCEL_NO_ENV_FILE || process.env.VERCEL) return;
+  const file = require('node:path').join(__dirname, '..', '.env.local');
+  try { process.loadEnvFile(file); } catch { /* no .env.local — defaults are used */ }
+}
+
 // Started by scripts/demo.js? Exit when the launcher dies (Windows doesn't kill child processes for us).
 if (process.env.DEMO_PARENT_PID) {
   setInterval(() => {
@@ -70,4 +78,4 @@ function log(tag, ...args) {
   console.log(`[${t}] [${tag}]`, ...args);
 }
 
-module.exports = { TOPICS, DEFAULT_CONFIG, sanitizeConfig, startBroker, uid, log };
+module.exports = { TOPICS, DEFAULT_CONFIG, sanitizeConfig, startBroker, uid, log, loadLocalEnv };

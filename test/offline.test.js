@@ -13,7 +13,7 @@ const env = {
   ...process.env,
   CLOUD_HTTP_PORT: '3190', CLOUD_DATA_DIR: path.join(tmp, 'cloud'),
   EDGE_HTTP_PORT: '8190', EDGE_BROKER_PORT: '1893', EDGE_DATA_DIR: path.join(tmp, 'edge'),
-  CLOUD_URL: 'http://localhost:3190', EDGE_ID: 'test-hub',
+  CLOUD_URL: 'http://localhost:3190', EDGE_ID: 'test-hub', PARCEL_NO_ENV_FILE: '1',
 };
 const start = (file, args = []) => spawn(process.execPath, [path.join(root, file), ...args], { cwd: root, env, stdio: 'ignore' });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

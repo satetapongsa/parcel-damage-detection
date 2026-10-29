@@ -202,3 +202,8 @@ main { padding: 20px 24px 40px; max-width: 1500px; margin: 0 auto; }
   main { padding: 16px; }
   .kpi-val { font-size: 28px; }
 }
+
+/* ---------- demo mode ---------- */
+.demo-banner { background: var(--accent); color: var(--accent-ink); font-weight: 700; text-align: center; font-size: 14px; padding: 6px 16px; border-bottom: 3px solid #1a1c20; }
+#demoBtn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tag.demo { border-left-color: var(--accent); color: var(--accent); }

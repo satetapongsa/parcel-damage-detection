@@ -68,6 +68,21 @@ test('cloud API works on Postgres', { timeout: 60000 }, async () => {
 
     const feed = await j(`/api/feed?since=${now - 60000}`);
     assert.equal(feed.inspections.length, 2);
+
+    // ---- demo mode ----
+    assert.equal((await post('/api/demo/tick', {})).made, false, 'off by default');
+    await post('/api/demo', { enabled: true }, 'PUT');
+    assert.equal((await j('/api/demo')).enabled, true);
+    const t1 = await post('/api/demo/tick', {});
+    assert.equal(t1.made, true);
+    assert.equal((await post('/api/demo/tick', {})).made, false, 'rate limited');
+    const demoRows = await j('/api/inspections?edge=demo-hub');
+    assert.equal(demoRows.total, 1);
+    assert.equal(demoRows.rows[0].demo, 1);
+    assert.equal((await j(`/api/summary?from=1&demo=0`)).total, 2, 'demo excluded on request');
+    assert.ok((await j('/api/edges')).some((e) => e.edge_id === 'demo-hub' && e.online));
+    assert.equal((await j('/api/demo/data', { method: 'DELETE' })).deleted, 1);
+    assert.equal((await j('/api/inspections?edge=demo-hub')).total, 0);
   } finally {
     server.close();
     delete global.__PG_QUERY__;

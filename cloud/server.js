@@ -1,4 +1,5 @@
 // Local cloud server (no Vercel needed): API + dashboard on one port, SQLite unless DATABASE_URL is set.
+require('../shared/common').loadLocalEnv(); // must run before ./app reads process.env
 const path = require('node:path');
 const express = require('express');
 const api = require('./app');

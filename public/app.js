@@ -214,7 +214,7 @@
       <td class="mono">${fmtTime(r.ts)}</td><td class="mono">${esc(r.tracking || '—')}</td>
       <td><span class="pill ${esc(r.result)}">${RESULT_LABEL[r.result] || esc(r.result)}</span></td>
       <td>${reasonTags(r)}</td><td>${r.max_conf != null ? (r.max_conf * 100).toFixed(0) + '%' : '–'}</td>
-      <td>${r.weight_g != null ? fmtNum(Math.round(r.weight_g)) + ' g' : '–'}</td><td class="mono">${esc(r.edge_id)}</td>
+      <td>${r.weight_g != null ? fmtNum(Math.round(r.weight_g)) + ' g' : '–'}</td><td class="mono">${esc(r.edge_id)}${r.demo ? ' <span class="tag demo">DEMO</span>' : ''}</td>
       <td class="small ${delay > 10000 ? '' : 'muted'}">${delay > 10000 ? `⟳ ย้อนหลัง ${Math.round(delay / 1000)}s` : 'real-time'}</td></tr>`;
   }
   function reasonTags(r) {
@@ -360,7 +360,7 @@
       <td><span class="pill ${esc(x.result)}">${RESULT_LABEL[x.result]}</span></td><td>${reasonTags(x)}</td>
       <td>${x.decided_by === 'FAILSAFE' ? '<span class="tag fs">FAIL-SAFE</span>' : 'AI'}</td>
       <td>${x.max_conf != null ? (x.max_conf * 100).toFixed(0) + '%' : '–'}</td>
-      <td>${x.weight_g != null ? fmtNum(Math.round(x.weight_g)) + ' g' : '–'}</td><td class="mono">${esc(x.edge_id)}</td></tr>`).join('')
+      <td>${x.weight_g != null ? fmtNum(Math.round(x.weight_g)) + ' g' : '–'}</td><td class="mono">${esc(x.edge_id)}${x.demo ? ' <span class="tag demo">DEMO</span>' : ''}</td></tr>`).join('')
       || '<tr><td colspan="8" class="empty">ไม่พบข้อมูล</td></tr>';
     const pages = Math.max(1, Math.ceil(r.total / st.pageSize));
     $('#pageInfo').textContent = `หน้า ${st.page + 1} / ${pages}`;
@@ -491,6 +491,30 @@
     }
   });
 
+  // ---------- demo mode ----------
+  st.demo = false;
+  function setDemo(on) {
+    st.demo = !!on;
+    $('#demoBtn').classList.toggle('on', st.demo);
+    $('#demoBtn').textContent = st.demo ? '■ หยุด Demo' : '▶ Demo';
+    $('#demoBanner').classList.toggle('hidden', !st.demo);
+  }
+  $('#demoBtn').addEventListener('click', async () => {
+    try { setDemo((await api('/api/demo', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !st.demo }) })).enabled); }
+    catch (e) { toast({ severity: 'warning', type: 'DEMO', message: e.message }); }
+  });
+  $('#demoClear').addEventListener('click', async () => {
+    if (!confirm('ลบข้อมูลจำลอง (สถานี demo-hub) ทั้งหมด? ข้อมูลจริงไม่ถูกลบ')) return;
+    try {
+      const r = await api('/api/demo/data', { method: 'DELETE' });
+      $('#demoMsg').textContent = `✓ ลบแล้ว ${r.deleted} กล่อง`;
+      st.feed = st.feed.filter((x) => !x.demo);
+      delete st.edges['demo-hub'];
+      refreshTab();
+    } catch (e) { $('#demoMsg').textContent = '✕ ' + e.message; }
+  });
+  api('/api/demo').then((d) => setDemo(d.enabled)).catch(() => {});
+
   // ---------- toast ----------
   function toast(a) {
     const el = document.createElement('div');
@@ -516,6 +540,8 @@
     try {
       const f = await api(`/api/feed?since=${since - 3000}`);
       since = f.now;
+      setDemo(f.demo);
+      if (f.demo) api('/api/demo/tick', { method: 'POST' }).catch(() => {}); // the open dashboard drives demo mode
       $('#conn').textContent = '● LIVE'; $('#conn').classList.remove('off');
       const fresh = f.inspections.filter((r) => !seen.has(r.id)).reverse(); // oldest first
       fresh.forEach((r) => {

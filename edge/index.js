@@ -7,6 +7,7 @@
 //
 // The real-time path never waits for the internet: if the cloud is down the station keeps
 // sorting, stores everything locally, shows YELLOW, and syncs when the link comes back.
+require('../shared/common').loadLocalEnv(); // CLOUD_URL, INGEST_API_KEY from .env.local
 const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');

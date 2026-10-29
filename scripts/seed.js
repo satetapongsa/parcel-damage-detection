@@ -2,6 +2,7 @@
 // so a fresh Vercel dashboard has something to show before the hardware is connected.
 //
 //   node scripts/seed.js --url https://your-app.vercel.app --key <INGEST_API_KEY> [--count 150] [--hours 24]
+require('../shared/common').loadLocalEnv();
 const crypto = require('node:crypto');
 const { frame, makeScenario, W, H } = require('../simulator/scene');
 const { normalizeDetections, decide } = require('../edge/decision');

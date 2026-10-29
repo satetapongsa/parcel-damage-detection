@@ -63,6 +63,22 @@ npm install
 npm run demo
 ```
 
+> **Windows PowerShell** ขึ้น error "running scripts is disabled" → ใช้ `npm.cmd` แทน `npm` เช่น `npm.cmd install`, `npm.cmd run demo`
+
+**ใช้ฐานข้อมูล Neon ตอนรันในเครื่อง:** สร้างไฟล์ `.env.local` ที่โฟลเดอร์โปรเจค (ไฟล์นี้ไม่ขึ้น Git) ใส่
+```
+DATABASE_URL=postgresql://...ของ Neon...
+INGEST_API_KEY=...
+ADMIN_KEY=...
+```
+ทุกส่วน (cloud, edge, seed) จะอ่านไฟล์นี้เอง ไม่มีไฟล์ = ใช้ SQLite ในเครื่อง
+
+**ดูข้อมูลใน Neon:** เปิด Neon Console → SQL Editor
+```sql
+SELECT * FROM inspection_log;   -- ทุกกล่อง: เวลา (ไทย), ผ่าน/ไม่ผ่าน, บุบ/ฉีก/ผิดรูป/เปียก, น้ำหนัก, ...
+SELECT * FROM alert_log;        -- แจ้งเตือนทั้งหมด
+```
+
 | เปิด | คืออะไร |
 |---|---|
 | http://localhost:3000 | **Web Dashboard** |
@@ -75,12 +91,13 @@ npm run demo
 ## ☁️ Deploy เว็บขึ้น Vercel
 
 1. ไปที่ [vercel.com/new](https://vercel.com/new) → **Import** repo นี้ → ไม่ต้องตั้ง build ใด ๆ
-2. แท็บ **Storage** ของโปรเจค → **Create Database → Neon (Postgres)** → Connect (Vercel ใส่ `DATABASE_URL` ให้เอง)
+2. ต่อ Neon: ถ้ามีฐานข้อมูล Neon อยู่แล้ว ใส่ `DATABASE_URL` เป็น connection string ของ Neon ในขั้นที่ 3 · ถ้ายังไม่มี ใช้แท็บ **Storage → Create Database → Neon**
 3. **Settings → Environment Variables** เพิ่ม
    - `INGEST_API_KEY` = รหัสลับที่เครื่องหน้างานใช้ส่งข้อมูล (ตั้งเอง ยาว ๆ)
    - `ADMIN_KEY` = รหัสสำหรับแก้ค่า/รับทราบแจ้งเตือนบนเว็บ (ไม่ใส่ = ใครก็แก้ได้)
 4. **Redeploy** → เปิด `https://<ชื่อโปรเจค>.vercel.app/api/health` ต้องเห็น `"db":"postgres"`
-5. (ไม่บังคับ) ใส่ข้อมูลตัวอย่างให้เว็บมีอะไรโชว์:
+5. **Demo mode** — กดปุ่ม **▶ Demo** มุมขวาบนของเว็บ (ใส่ `ADMIN_KEY`) เซิร์ฟเวอร์จะสร้างกล่องจำลองทุก ~3 วินาทีระหว่างที่เปิดหน้าเว็บไว้ ไม่ต้องเปิดเครื่องหน้างาน ข้อมูลจำลองติดป้าย **DEMO** สถานี `demo-hub` เก็บแค่ 300 กล่องล่าสุด และลบทิ้งได้ในแท็บตั้งค่า
+6. (ไม่บังคับ) ใส่ข้อมูลย้อนหลัง 24 ชม. ครั้งเดียว:
    ```bash
    npm run seed -- --url https://<ชื่อโปรเจค>.vercel.app --key <INGEST_API_KEY>
    ```

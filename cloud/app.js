@@ -38,6 +38,7 @@ function where(q, startIdx = 1) {
   add('ts >= ?', from);
   add('ts <= ?', to);
   if (q.edge) add('edge_id = ?', String(q.edge));
+  if (q.demo === '0') c.push('COALESCE(demo, 0) = 0'); // real data only
   if (q.result) add('result = ?', String(q.result).toUpperCase());
   if (q.reason) add('reason LIKE ?', `%${String(q.reason).toUpperCase()}%`);
   if (q.q) add('(LOWER(tracking) LIKE ? OR id LIKE $X)', `%${String(q.q).trim().toLowerCase()}%`);
@@ -47,9 +48,8 @@ function where(q, startIdx = 1) {
 const SUM = (cond) => `SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END)`;
 
 // ======================= INGEST (from edge gateways) =======================
-app.post('/api/ingest/inspection', needIngest, wrap(async (req, res) => {
-  const m = req.body || {};
-  if (!m.id || !m.edge_id) return res.status(400).json({ error: 'id and edge_id required' });
+// Shared by the ingest API and Demo mode, so demo parcels are stored exactly like real ones.
+async function saveInspection(m, { demo = false } = {}) {
   const now = Date.now();
   const saveImg = async (name, b64) => {
     if (!b64) return null;
@@ -60,23 +60,38 @@ app.post('/api/ingest/inspection', needIngest, wrap(async (req, res) => {
   const det = Array.isArray(m.detections) ? m.detections : [];
   const imgTop = await saveImg('top', m.images?.top);
   const imgSide = await saveImg('side', m.images?.side);
-  const r = await db.run(`INSERT INTO inspections
-    (id, edge_id, seq, tracking, result, reason, decided_by, detections, max_conf, dent, tear, deform, wet, weight_g, brightness, img_top, img_side, latency_ms, ts, received_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT (id) DO NOTHING`, [
+  return db.run(`INSERT INTO inspections
+    (id, edge_id, seq, tracking, result, reason, decided_by, detections, max_conf, dent, tear, deform, wet, weight_g, brightness, img_top, img_side, latency_ms, ts, received_at, demo)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) ON CONFLICT (id) DO NOTHING`, [
     String(m.id), String(m.edge_id), m.seq ?? null, m.tracking ?? null, m.result, m.reason, m.decided_by,
     JSON.stringify(det), m.max_conf ?? null,
     ...['DENT', 'TEAR', 'DEFORM', 'WET'].map((c) => (String(m.reason || '').split('+').includes(c) ? 1 : 0)), // only defects that caused the reject
-    m.weight_g ?? null, m.brightness ?? null, imgTop, imgSide, m.latency_ms ?? null, m.ts || now, now,
+    m.weight_g ?? null, m.brightness ?? null, imgTop, imgSide, m.latency_ms ?? null, m.ts || now, now, demo ? 1 : 0,
   ]);
+}
+
+async function saveAlert(a, { demo = false } = {}) {
+  return db.run(`INSERT INTO alerts (id, edge_id, type, severity, message, ts, received_at, demo)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING`,
+  [String(a.id), String(a.edge_id), a.type, a.severity, a.message, a.ts || Date.now(), Date.now(), demo ? 1 : 0]);
+}
+
+async function saveStatus(s) {
+  await db.run(`INSERT INTO edges (edge_id, status, last_seen) VALUES ($1, $2, $3)
+    ON CONFLICT (edge_id) DO UPDATE SET status = EXCLUDED.status, last_seen = EXCLUDED.last_seen`, [String(s.edge_id), JSON.stringify(s), Date.now()]);
+}
+
+app.post('/api/ingest/inspection', needIngest, wrap(async (req, res) => {
+  const m = req.body || {};
+  if (!m.id || !m.edge_id) return res.status(400).json({ error: 'id and edge_id required' });
+  const r = await saveInspection(m);
   res.json({ ok: true, inserted: r.changes });
 }));
 
 app.post('/api/ingest/alert', needIngest, wrap(async (req, res) => {
   const a = req.body || {};
   if (!a.id || !a.edge_id) return res.status(400).json({ error: 'id and edge_id required' });
-  await db.run(`INSERT INTO alerts (id, edge_id, type, severity, message, ts, received_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
-  [String(a.id), String(a.edge_id), a.type, a.severity, a.message, a.ts || Date.now(), Date.now()]);
+  await saveAlert(a);
   res.json({ ok: true });
 }));
 
@@ -85,8 +100,7 @@ app.post('/api/ingest/status', needIngest, wrap(async (req, res) => {
   const s = req.body || {};
   if (!s.edge_id) return res.status(400).json({ error: 'edge_id required' });
   const edge = String(s.edge_id);
-  await db.run(`INSERT INTO edges (edge_id, status, last_seen) VALUES ($1, $2, $3)
-    ON CONFLICT (edge_id) DO UPDATE SET status = EXCLUDED.status, last_seen = EXCLUDED.last_seen`, [edge, JSON.stringify(s), Date.now()]);
+  await saveStatus(s);
   let cur = await db.get('SELECT config, updated_at FROM configs WHERE edge_id = $1', [edge]);
   if (s.config && s.config_updated_at && (!cur || cur.updated_at < s.config_updated_at)) {
     const cfg = JSON.stringify(sanitizeConfig(s.config));
@@ -216,6 +230,60 @@ app.put('/api/config/:edge', needAdmin, wrap(async (req, res) => {
   res.json({ edge_id: edge, config, updated_at });
 }));
 
+// ======================= DEMO MODE =======================
+// The dashboard calls /api/demo/tick every few seconds while demo is ON. Serverless has no background
+// jobs, so the open browser is the clock; an atomic timestamp check keeps several viewers from flooding.
+const DEMO_EVERY_MS = 2500;
+const DEMO_KEEP = 300; // keep only the newest N demo parcels (Neon free tier is 0.5 GB)
+const kvGet = async (k) => (await db.get('SELECT v FROM kv WHERE k = $1', [k]))?.v ?? null;
+const kvSet = (k, v) => db.run('INSERT INTO kv (k, v) VALUES ($1, $2) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v', [k, String(v)]);
+
+app.get('/api/demo', wrap(async (_req, res) => {
+  res.json({ enabled: (await kvGet('demo_enabled')) === '1' });
+}));
+
+app.put('/api/demo', needAdmin, wrap(async (req, res) => {
+  const enabled = !!req.body?.enabled;
+  await kvSet('demo_enabled', enabled ? 1 : 0);
+  res.json({ enabled });
+}));
+
+app.post('/api/demo/tick', wrap(async (_req, res) => {
+  if ((await kvGet('demo_enabled')) !== '1') return res.json({ made: false, reason: 'demo off' });
+  const now = Date.now();
+  await db.run("INSERT INTO kv (k, v) VALUES ('demo_last', '0') ON CONFLICT (k) DO NOTHING");
+  // only one caller per interval wins this update
+  const won = await db.run("UPDATE kv SET v = $1 WHERE k = 'demo_last' AND CAST(v AS BIGINT) <= $2", [String(now), now - DEMO_EVERY_MS]);
+  if (!won.changes) return res.json({ made: false, reason: 'too soon' });
+
+  const { makeDemoParcel, maybeDemoAlert, demoStatus, DEMO_EDGE } = require('./demo');
+  const cfgRow = await db.get('SELECT config FROM configs WHERE edge_id = $1', [DEMO_EDGE]);
+  const config = cfgRow ? sanitizeConfig(JSON.parse(cfgRow.config)) : DEFAULT_CONFIG;
+  const parcel = makeDemoParcel(config);
+  await saveInspection(parcel, { demo: true });
+  const alert = maybeDemoAlert();
+  if (alert) await saveAlert(alert, { demo: true });
+  await saveStatus(demoStatus(config));
+
+  if (parcel.seq % 20 === 0) { // housekeeping: drop the oldest demo parcels and their images
+    const old = await db.all(`SELECT id FROM inspections WHERE demo = 1 ORDER BY ts DESC LIMIT 200 OFFSET ${DEMO_KEEP}`);
+    for (const { id } of old) {
+      await db.run('DELETE FROM images WHERE name = $1 OR name = $2', [`${id}_top.jpg`, `${id}_side.jpg`]);
+      await db.run('DELETE FROM inspections WHERE id = $1', [id]);
+    }
+  }
+  res.json({ made: true, result: parcel.result, reason: parcel.reason });
+}));
+
+app.delete('/api/demo/data', needAdmin, wrap(async (_req, res) => {
+  const ids = await db.all('SELECT id FROM inspections WHERE demo = 1');
+  for (const { id } of ids) await db.run('DELETE FROM images WHERE name = $1 OR name = $2', [`${id}_top.jpg`, `${id}_side.jpg`]);
+  const r = await db.run('DELETE FROM inspections WHERE demo = 1');
+  await db.run('DELETE FROM alerts WHERE demo = 1');
+  await db.run("DELETE FROM edges WHERE edge_id = 'demo-hub'");
+  res.json({ ok: true, deleted: r.changes });
+}));
+
 // polled by the dashboard for live updates
 app.get('/api/feed', wrap(async (req, res) => {
   const since = Number(req.query.since) || Date.now() - 60e3;
@@ -226,7 +294,8 @@ app.get('/api/feed', wrap(async (req, res) => {
     db.all('SELECT * FROM edges ORDER BY edge_id'),
   ]);
   res.set('Cache-Control', 'no-store');
-  res.json({ now, inspections: inspections.map(parseInsp), alerts, edges: edges.map(edgeView) });
+  const demo = (await kvGet('demo_enabled')) === '1';
+  res.json({ now, demo, inspections: inspections.map(parseInsp), alerts, edges: edges.map(edgeView) });
 }));
 
 module.exports = app;
